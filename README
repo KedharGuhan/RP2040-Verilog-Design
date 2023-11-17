@@ -1,5 +1,5 @@
 git init
-git clone https://github.com/PurvinTalati/RP2040-Verilog-Design.git
+git clone https://github.com/KedharGuhan/RP2040-Verilog-Design.git
 cd RP2040-Verilog-Design/
 ls
 gvim state_machine.sv
