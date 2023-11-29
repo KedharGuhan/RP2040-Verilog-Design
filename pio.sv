@@ -2,10 +2,8 @@
 `include "pio_regs.sv"
 `include "single_port_ram.v"
 `include "state_machine.sv"
-//`include "divider.sv"
-`include "divider_ked.v"
+`include "divider_ked.sv"
 `include "shift_register.sv"
-
 module pio(input clk, input reset, input sel, input RW,
                    input  [11:0] addr,
                    input  [31:0] wdata, output [31:0] rdata, output busy,
@@ -23,35 +21,31 @@ wire [15:0] memory_wdata,memory_rdata;
 wire [15:0] instr_data;
 wire valid;
 wire flag_ab;
-
-//EXEC_CTRL
+wire use_divider;
+wire penable;
+wire pclk;
 wire [16:12] wrap_top;
 wire [16:12] wrap_bottom;
 wire sm_enable,sm_restart;
 
-//Clk Divider
-wire [15:0] INT;
-wire [7:0] FRAC;
-wire [23:0] div;
-wire use_divider;
-wire penable;
-wire pclk;
-
 //OSR
 wire sm_shiftctrl = r1.sm0_shtctrl.out_shtdir;
 wire [7:0] OSR_value, OSR_valid;
+wire [15:0] INT;
+wire [7:0] FRAC;
+wire [23:0] div;
 
 assign sm_enable  = r1.ctrl[0];
 assign sm_restart = r1.ctrl[4];
 assign r1.sm0_addr.curr_inst_addr = pc;
 assign flag_ab = (r1.SM0_INSTR_SEL & RW) ? 1'b1 : 1'b0;
-//clk divider
 assign use_divider = (r1.sm0_clkdiv[31:16] <= 2) ? 1'b0 : 1'b1;
 assign INT = r1.sm0_clkdiv.Int;
 assign FRAC = r1.sm0_clkdiv.frac;
 assign div = r1.sm0_clkdiv[31:8];
-assign wrap_bottom = r1.sm0_execctrl.wrap_bottom;
 assign wrap_top = r1.sm0_execctrl.wrap_top;
+assign wrap_bottom = r1.sm0_execctrl.wrap_bottom;
+//assign IRQ_flags = r1.irq_reg.general_8_bit;
 
 shift_register OSR(.clk(clk), .reset(reset), 
                    .shift_dir(sm_shiftctrl),
@@ -67,8 +61,7 @@ state_machine sm(clk,reset,sm_enable,sm_restart,pc,memory_rdata,valid,rd,flag_ab
                 //OSR
                 OSR_value, OSR_valid
                 );
-
-//divider div_mod(clk,reset, div, use_divider,penable,pclk);
+                
 divider(.clk(clk), .reset(reset), .INT(INT), .FRAC(FRAC), .use_divider(use_divider), .pulse_en(penable));
 
 always @(posedge clk)
@@ -79,4 +72,5 @@ begin
         $display("%0t, addr=%h rdata=%h",$time,addr,rdata);
 end
 endmodule
+
 

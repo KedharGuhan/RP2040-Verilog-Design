@@ -13,6 +13,8 @@ bit [4:0] delay;
 
 reg [15:0] decode_instr_data;
 reg [4:0] jmp_addr;
+reg [4:0] irq_index;      //IRQ index
+reg irq_valid, irq_val, irq_wait, irq_wait_reg;   //IRQ valid, value, wait
 reg [4:0] scratchX, scratchX_update;
 reg [4:0] scratchY, scratchY_update;
 
@@ -28,136 +30,202 @@ always @(posedge clk, posedge reset) begin
     scratchY      <= 32'b0;
   end else begin
     current_state <= next_state; 
-    if(condition == 3'b010)
-      scratchX      <= scratchX - 5'b1;
-    if(condition == 3'b100)
-      scratchY      <= scratchY - 5'b1;
+   // if(condition == 3'b010)
+    //  scratchX      <= scratchX - 5'b1;
+   // if(condition == 3'b100)
+   //   scratchY      <= scratchY - 5'b1;
   end 
 end
 
 always @(posedge clk)
 begin
+  irq_valid = 0;
+  irq_index = 0;
+  irq_wait = irq_wait_reg;
   if(penable || flag_abnormal) begin
     //scratchX_update   = scratchX;
     if(flag_abnormal & sm_enable) begin
       current_state     = DECODE;
       decode_instr_data = jmp_data;
-    end
-    //if(sm_restart) begin
-    //end
-    case(current_state) 
-        IDLE:begin
-            pc = 0;
-            decode_instr_data =0;
-            valid = 0;
-            rd=0;
-            if(sm_enable)
-              next_state = DECODE;
-        end
-        
-        DECODE:begin
-            jump_valid = 0;
-            scratchX_update = scratchX;
-            scratchY_update = scratchY;
-            if(!flag_abnormal)
-              decode_instr_data= instr_data;
-            else
-              decode_instr_data = jmp_data;
-           
-            jmp_addr = decode_instr_data[4:0];
+      irq_wait          = 0;
+    end 
+    if(!irq_wait_reg) begin
+      //if(sm_restart) begin
+      //end
+      case(current_state) 
+          IDLE:begin
+              pc = 0;
+              decode_instr_data =0;
+              valid = 0;
+              rd=0;
+              if(sm_enable)
+                next_state = DECODE;
+          end
+          
+          DECODE:begin
+              jump_valid = 0;
+              scratchX_update = scratchX;
+              scratchY_update = scratchY;
+              if(!flag_abnormal) begin
+                if(!irq_wait_reg)
+                  decode_instr_data= instr_data;
+              end else
+                decode_instr_data = jmp_data;
             
-            if(sm_enable==0)
-                next_state = IDLE;
-            else begin
-               next_state = DECODE;
-                case(decode_instr_data[15:13])
-                3'b000: begin                      //JMP
-                    //Note write for condition
-                   if(condition == 3'd0) begin                //always
-                     jump_valid = 1;
-                   end
-                   else if(condition == 3'b001) begin    //!X    (jmp_test4, 5)
-                     if(scratchX == 0) begin
-                       jump_valid = 1;
-                       $display("JMP condition !X: %h \t pc:%h \t scratchX: %h", decode_instr_data, pc, scratchX);
-                     end
-                   end 
-                   else if(condition == 3'b010) begin    //X--    (jmp_test5)
-                     if(scratchX != 5'b0) 
-                       jump_valid      = 1;
-                     else 
-                       jump_valid = 0;
-                     //decrement X
-                     scratchX = scratchX_update - 5'b1;
-                     $display("JMP condition X--: %h \t pc:%h \t scratchX: %h", decode_instr_data, pc, scratchX);
-                   end
-                   else if(condition == 3'b011) begin    //!Y    (jmp_test6?)
-                     if(scratchY == 0) begin
-                       jump_valid = 1;
-                       $display("JMP condition !Y: %h \t pc:%h \t scratchY: %h", decode_instr_data, pc, scratchY);
-                     end
-                   end 
-                   else if(condition == 3'b100) begin    //Y--     (jmp_test7)
-                      if(scratchY != 5'b0) 
-                       jump_valid      = 1;
-                     else 
-                       jump_valid = 0;
-                     //decrement Y
-                     scratchY = scratchY_update - 5'b1;
-                     $display("JMP condition Y--: %h \t pc:%h \t scratchY: %h", decode_instr_data, pc, scratchY_update);  
-                   end    
-                   else if (condition == 3'b101) begin    //X!=Y
-                     if(scratchX != scratchY)
-                       jump_valid = 1;
-                   end      
-                   else if(condition == 3'b110) begin     //JMP_PIN
-                    if(top.p0.p0.gpio_pins[top.p0.p0.r1.sm0_execctrl[28:24]] == 1'b1) 
+              jmp_addr = decode_instr_data[4:0];
+              
+              if(sm_enable==0)
+                  next_state = IDLE;
+              else begin
+                next_state = DECODE;
+                  case(decode_instr_data[15:13])
+                  3'b000: begin                      //JMP
+                      //Note write for condition
+                    if(condition == 3'd0) begin                //always
                       jump_valid = 1;
-                    else jump_valid = 0;
-                    $display("JMP condition (pin): %h \t pc:%h \t jmp_pin: #%h, %h", decode_instr_data, pc, top.p0.p0.r1.sm0_execctrl[28:24], top.p0.p0.gpio_pins[top.p0.p0.r1.sm0_execctrl[28:24]]);  
-                   end 
-                   else if(condition == 3'b111) begin     //!OSRE
-                    if(OSR_value != 8'b0)
-                      jump_valid = 1;
-                    else jump_valid = 0;
-                   end
-                   
+                    end
+                    else if(condition == 3'b001) begin    //!X    (jmp_test4, 5)
+                      if(scratchX == 0) begin
+                        jump_valid = 1;
+                        $display("JMP condition !X: %h \t pc:%h \t scratchX: %h", decode_instr_data, pc, scratchX);
+                      end
+                    end 
+                    else if(condition == 3'b010) begin    //X--    (jmp_test5)
+                      if(scratchX != 5'b0) 
+                        jump_valid      = 1;
+                      else 
+                        jump_valid = 0;
+                      //decrement X
+                      scratchX = scratchX_update - 5'b1;
+                      $display("JMP condition X--: %h \t pc:%h \t scratchX: %h", decode_instr_data, pc, scratchX);
+                    end
+                    else if(condition == 3'b011) begin    //!Y    (jmp_test6?)
+                      if(scratchY == 0) begin
+                        jump_valid = 1;
+                        $display("JMP condition !Y: %h \t pc:%h \t scratchY: %h", decode_instr_data, pc, scratchY);
+                      end
+                    end 
+                    else if(condition == 3'b100) begin    //Y--     (jmp_test7)
+                        if(scratchY != 5'b0) 
+                        jump_valid      = 1;
+                      else 
+                        jump_valid = 0;
+                      //decrement Y
+                      scratchY = scratchY_update - 5'b1;
+                      $display("JMP condition Y--: %h \t pc:%h \t scratchY: %h", decode_instr_data, pc, scratchY_update);  
+                    end    
+                    else if (condition == 3'b101) begin    //X!=Y
+                      if(scratchX != scratchY)
+                        jump_valid = 1;
+                    end      
+                    else if(condition == 3'b110) begin     //JMP_PIN
+                      if(top.p0.p0.gpio_pins[top.p0.p0.r1.sm0_execctrl[28:24]] == 1'b1) 
+                        jump_valid = 1;
+                      else jump_valid = 0;
+                      $display("JMP condition (pin): %h \t pc:%h \t jmp_pin: #%h, %h", decode_instr_data, pc, top.p0.p0.r1.sm0_execctrl[28:24], top.p0.p0.gpio_pins[top.p0.p0.r1.sm0_execctrl[28:24]]);  
+                    end 
+                    else if(condition == 3'b111) begin     //!OSRE
+                      if(OSR_value != 8'b0)
+                        jump_valid = 1;
+                      else jump_valid = 0;
+                    end
+                      
+                      delay = decode_instr_data [12:8];
+                      if(jump_valid) begin
+                      pc = jmp_addr;
+                      valid = 1;
+                      end else begin
+                      if(pc == wrap_top)
+                          pc = wrap_bottom;
+                      else pc = pc + 'h1;
+                      //delay=0;
+                      end
+                      rd = 1;
+                      if(delay!=0) begin
+                        next_state = WAIT;
+                      //  delay = delay - 1;
+                      end
+                      $display("inside JMP %h %h",decode_instr_data,pc);
+                  end
+                  3'b110: begin                       //IRQ
+                    delay = decode_instr_data [12:8];
+                    irq_index = decode_instr_data [4:0];
+                    if(decode_instr_data[6]) begin     //Clear pin
+                        irq_valid = 1;
+                        irq_val = 0; //top.p0.p0.r1.irq_reg.general_8_bit[index] = 0;
+                    end else begin //top.p0.p0.r1.irq_reg.general_8_bit[index] = 1;
+                      if(decode_instr_data[5]) begin    //Wait pin
+                        if(top.p0.p0.r1.irq_reg.general_8_bit[irq_index]) begin  //asserted? stay in stall state
+                          irq_wait = 1;
+                        end else begin                                       //not asserted? is it serviced or yet to assert?
+                          if(irq_wait_reg) begin      //previosly high, which means it is serviced now.
+                            irq_wait = 0;
+                          end else begin             //yet to assert. so assert now and MOVE ON.
+                            irq_valid = 1;
+                            irq_val   = 1;
+                          end
+                        end
+                      end else begin
+                          irq_valid = 1;
+                          irq_val = 1;
+                      end
+                    end
+          
+                    if(delay==0 && !irq_wait_reg) begin
+                    if(pc == wrap_top)
+                          pc = wrap_bottom;
+                    else pc = pc + 'h1;
+                    end
+                    else begin
+                        next_state = WAIT;
+                      //  delay = delay - 1;
+                    end
                     
-                    if(jump_valid) begin
-                     pc = jmp_addr;
-                     valid = 1;
-                     delay = decode_instr_data [12:8];
-                    end else begin
-                     if(pc == wrap_top)
-                        pc = wrap_bottom;
-                     else pc = pc + 'h1;
+                      end
+                  3'b111: begin                         //SET
+                    $display("INSIDE set");
+                    case(condition)
+                        3'b001 : scratchX = decode_instr_data[4:0];
+                        3'b010 : scratchY = decode_instr_data[4:0];
+                    endcase
+                    delay = decode_instr_data [12:8];
+                    if(delay==0) begin
+                    if(pc == wrap_top)
+                          pc = wrap_bottom;
+                    else pc = pc + 'h1;
                     end
-                    rd = 1;
-                    if(delay!=0) begin
-                      next_state = WAIT;
-                      delay = delay - 1;
+                    else begin
+                        next_state = WAIT;
+                      //  delay = delay - 1;
                     end
-                    $display("inside JMP %h %h",decode_instr_data,pc);
+
+
                 end
-               // 3'b110: next_state = IRQ;
-               // 3'b111: next_state = SET;
-               endcase
-            end
-        end
-        
-        WAIT:begin
-            if(sm_enable==0)
-                next_state = IDLE;
-            else begin
-                if(delay==1) begin
-                   delay = delay - 1;
-                   next_state = DECODE;
-                end
-                else
-                   delay = delay - 1;
-            end
-        end
-    endcase
+                endcase
+              end
+          end
+          
+          WAIT:begin
+              if(sm_enable==0)
+                  next_state = IDLE;
+              else begin
+                  if(delay==1) begin
+                    delay = delay - 1;
+                    next_state = DECODE;
+                  end
+                  else
+                    delay = delay - 1;
+              end
+          end
+      endcase
+    end
+
   end
 end
+
+always@(posedge clk) 
+  if(reset) 
+    irq_wait_reg <= 0;
+  else irq_wait_reg <= irq_wait;
+
 endmodule

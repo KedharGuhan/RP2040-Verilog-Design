@@ -317,6 +317,9 @@ module pio_regs(input clk, input reset, input sel, input RW, input [11:0] addr, 
       end
       else begin
           we <= 'h0;
+          if(top.p0.p0.sm.irq_valid && top.p0.p0.sm.decode_instr_data[15:13] == 3'b110) //IRQ valid, Clear bit, IRQ instr  && top.p0.p0.sm.decode_instr_data[6]
+            irq_reg.general_8_bit[top.p0.p0.sm.irq_index] <= top.p0.p0.sm.irq_val;
+
           if(sel) begin
       case(addr)
           12'h000: begin
